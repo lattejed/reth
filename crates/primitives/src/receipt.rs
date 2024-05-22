@@ -534,6 +534,9 @@ impl<'a> ReceiptWithBloomEncoder<'a> {
             TxType::Eip4844 => {
                 out.put_u8(0x03);
             }
+            TxType::Eip7702 => {
+                out.put_u8(0x04);
+            }
             #[cfg(feature = "optimism")]
             TxType::Deposit => {
                 out.put_u8(0x7E);

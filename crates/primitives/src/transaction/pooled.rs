@@ -1,7 +1,7 @@
 //! Defines the types for blob transactions, legacy, and other EIP-2718 transactions included in a
 //! response to `GetPooledTransactions`.
 
-use super::error::TransactionConversionError;
+use super::{error::TransactionConversionError, TxEip7702};
 use crate::{
     Address, BlobTransaction, BlobTransactionSidecar, Bytes, Signature, Transaction,
     TransactionSigned, TransactionSignedEcRecovered, TxEip1559, TxEip2930, TxEip4844, TxHash,
@@ -45,6 +45,15 @@ pub enum PooledTransactionsElement {
         /// The hash of the transaction
         hash: TxHash,
     },
+    /// An EIP-7702 typed transaction
+    Eip7702 {
+        /// The inner transaction
+        transaction: TxEip7702,
+        /// The signature
+        signature: Signature,
+        /// The hash of the transaction
+        hash: TxHash,
+    },
     /// A blob transaction, which includes the transaction, blob data, commitments, and proofs.
     BlobTransaction(BlobTransaction),
 }
@@ -65,6 +74,9 @@ impl PooledTransactionsElement {
             }
             TransactionSigned { transaction: Transaction::Eip1559(tx), signature, hash } => {
                 Ok(PooledTransactionsElement::Eip1559 { transaction: tx, signature, hash })
+            }
+            TransactionSigned { transaction: Transaction::Eip7702(tx), signature, hash } => {
+                todo!("eip7702")
             }
             // Not supported because missing blob sidecar
             tx @ TransactionSigned { transaction: Transaction::Eip4844(_), .. } => Err(tx),
@@ -107,6 +119,7 @@ impl PooledTransactionsElement {
             Self::Legacy { transaction, .. } => transaction.signature_hash(),
             Self::Eip2930 { transaction, .. } => transaction.signature_hash(),
             Self::Eip1559 { transaction, .. } => transaction.signature_hash(),
+            Self::Eip7702 { .. } => todo!("eip7702"),
             Self::BlobTransaction(blob_tx) => blob_tx.transaction.signature_hash(),
         }
     }
@@ -117,6 +130,7 @@ impl PooledTransactionsElement {
             PooledTransactionsElement::Legacy { hash, .. } |
             PooledTransactionsElement::Eip2930 { hash, .. } |
             PooledTransactionsElement::Eip1559 { hash, .. } => hash,
+            PooledTransactionsElement::Eip7702 { .. } => todo!("eip7702"),
             PooledTransactionsElement::BlobTransaction(tx) => &tx.hash,
         }
     }
@@ -127,6 +141,7 @@ impl PooledTransactionsElement {
             Self::Legacy { signature, .. } |
             Self::Eip2930 { signature, .. } |
             Self::Eip1559 { signature, .. } => signature,
+            Self::Eip7702 { .. } => todo!("eip7702"),
             Self::BlobTransaction(blob_tx) => &blob_tx.signature,
         }
     }
@@ -137,6 +152,7 @@ impl PooledTransactionsElement {
             Self::Legacy { transaction, .. } => transaction.nonce,
             Self::Eip2930 { transaction, .. } => transaction.nonce,
             Self::Eip1559 { transaction, .. } => transaction.nonce,
+            Self::Eip7702 { .. } => todo!("eip7702"),
             Self::BlobTransaction(blob_tx) => blob_tx.transaction.nonce,
         }
     }
@@ -180,6 +196,8 @@ impl PooledTransactionsElement {
     /// For EIP-4844 transactions, the format includes a blob sidecar (the blobs, commitments, and
     /// proofs) after the transaction:
     /// `type || rlp([tx_payload_body, blobs, commitments, proofs])`
+    ///
+    /// TODO(eip7702): explain this
     ///
     /// Where `tx_payload_body` is encoded as a RLP list:
     /// `[chain_id, nonce, max_priority_fee_per_gas, ..., y_parity, r, s]`
@@ -240,6 +258,7 @@ impl PooledTransactionsElement {
                         signature: typed_tx.signature,
                         hash: typed_tx.hash,
                     }),
+                    Transaction::Eip7702(_) => todo!("eip7702"),
                     #[cfg(feature = "optimism")]
                     Transaction::Deposit(_) => Err(RlpError::Custom("Optimism deposit transaction cannot be decoded to PooledTransactionsElement"))
                 }
@@ -269,6 +288,11 @@ impl PooledTransactionsElement {
                 signature,
                 hash,
             },
+            Self::Eip7702 { transaction, signature, hash } => TransactionSigned {
+                transaction: Transaction::Eip7702(transaction),
+                signature,
+                hash,
+            },
             Self::BlobTransaction(blob_tx) => blob_tx.into_parts().0,
         }
     }
@@ -285,6 +309,10 @@ impl PooledTransactionsElement {
                 transaction.payload_len_with_signature_without_header(signature)
             }
             Self::Eip1559 { transaction, signature, .. } => {
+                // method computes the payload len without a RLP header
+                transaction.payload_len_with_signature_without_header(signature)
+            }
+            Self::Eip7702 { transaction, signature, .. } => {
                 // method computes the payload len without a RLP header
                 transaction.payload_len_with_signature_without_header(signature)
             }
@@ -318,6 +346,7 @@ impl PooledTransactionsElement {
         // - EIP-2930: TxEip2930::encode_with_signature
         // - EIP-1559: TxEip1559::encode_with_signature
         // - EIP-4844: BlobTransaction::encode_with_type_inner
+        // - EIP-7702: TODO(eip7702): fill this in
         match self {
             Self::Legacy { transaction, signature, .. } => {
                 transaction.encode_with_signature(signature, out)
@@ -327,6 +356,9 @@ impl PooledTransactionsElement {
             }
             Self::Eip1559 { transaction, signature, .. } => {
                 transaction.encode_with_signature(signature, out, false)
+            }
+            Self::Eip7702 { .. } => {
+                todo!("eip7702")
             }
             Self::BlobTransaction(blob_tx) => {
                 // The inner encoding is used with `with_header` set to true, making the final
@@ -375,6 +407,14 @@ impl PooledTransactionsElement {
         }
     }
 
+    /// Returns the [TxEip7702] variant if the transaction is an EIP-7702 transaction.
+    pub fn as_eip7702(&self) -> Option<&TxEip7702> {
+        match self {
+            Self::Eip7702 { transaction, .. } => Some(transaction),
+            _ => None,
+        }
+    }
+
     /// Returns the blob gas used for all blobs of the EIP-4844 transaction if it is an EIP-4844
     /// transaction.
     ///
@@ -404,6 +444,9 @@ impl PooledTransactionsElement {
         match self {
             Self::Legacy { .. } | Self::Eip2930 { .. } => None,
             Self::Eip1559 { transaction, .. } => Some(transaction.max_priority_fee_per_gas),
+            Self::Eip7702 { .. } => {
+                todo!("eip7702")
+            }
             Self::BlobTransaction(tx) => Some(tx.transaction.max_priority_fee_per_gas),
         }
     }
@@ -416,6 +459,9 @@ impl PooledTransactionsElement {
             Self::Legacy { transaction, .. } => transaction.gas_price,
             Self::Eip2930 { transaction, .. } => transaction.gas_price,
             Self::Eip1559 { transaction, .. } => transaction.max_fee_per_gas,
+            Self::Eip7702 { .. } => {
+                todo!("eip7702")
+            }
             Self::BlobTransaction(tx) => tx.transaction.max_fee_per_gas,
         }
     }
@@ -447,6 +493,9 @@ impl Encodable for PooledTransactionsElement {
                 // encodes with string header
                 transaction.encode_with_signature(signature, out, true)
             }
+            Self::Eip7702 { .. } => {
+                todo!("eip7702")
+            }
             Self::BlobTransaction(blob_tx) => {
                 // The inner encoding is used with `with_header` set to true, making the final
                 // encoding:
@@ -469,6 +518,9 @@ impl Encodable for PooledTransactionsElement {
             Self::Eip1559 { transaction, signature, .. } => {
                 // method computes the payload len with a RLP header
                 transaction.payload_len_with_signature(signature)
+            }
+            Self::Eip7702 { .. } => {
+                todo!("eip7702")
             }
             Self::BlobTransaction(blob_tx) => {
                 // the encoding uses a header, so we set `with_header` to true
@@ -575,6 +627,7 @@ impl Decodable for PooledTransactionsElement {
                         signature: typed_tx.signature,
                         hash: typed_tx.hash,
                     }),
+                    Transaction::Eip7702(_) => todo!("eip7702"),
                     #[cfg(feature = "optimism")]
                     Transaction::Deposit(_) => Err(RlpError::Custom("Optimism deposit transaction cannot be decoded to PooledTransactionsElement"))
                 }

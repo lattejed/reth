@@ -291,6 +291,7 @@ where
             tx_env.blob_hashes.clone_from(&tx.blob_versioned_hashes);
             tx_env.max_fee_per_blob_gas = Some(U256::from(tx.max_fee_per_blob_gas));
         }
+        Transaction::Eip7702(tx) => todo!("eip7702"),
         #[cfg(feature = "optimism")]
         Transaction::Deposit(tx) => {
             tx_env.access_list.clear();

@@ -436,7 +436,7 @@ mod test {
             TxType::Eip1559 as u8,
             TxType::Eip4844 as u8,
             TxType::Eip1559 as u8,
-            TxType::Eip4844 as u8,
+            TxType::Eip4844 as u8, // TODO(eip7702): add
         ];
         let sizes = vec![1, 1, 1, MAX_MESSAGE_SIZE];
         // first three or the same
